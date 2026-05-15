@@ -1,3 +1,10 @@
+const http = require('http');
+
+http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.write("Bot is running!");
+  res.end();
+}).listen(process.env.PORT || 10000);
 const { Client, GatewayIntentBits, PermissionsBitField, AuditLogEvent, EmbedBuilder } = require('discord.js');
 
 const client = new Client({
