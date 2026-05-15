@@ -17,7 +17,7 @@ const client = new Client({
   ]
 });
 
-let PREFIX = '!'; // Default prefix
+let PREFIX = '?'; // Default prefix /
 
 let WHITELIST = ['1302551987031900173']; 
 const QUARANTINE_ROLE_ID = '1504790298377584650'; 
