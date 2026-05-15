@@ -1,11 +1,13 @@
 {
-  "name": "bot",
+  "name": "qingg-bot",
   "version": "1.0.0",
+  "description": "Anti-Nuke Bot named QINGG",
   "main": "index.js",
-  "dependencies": {
-    "discord.js": "^14.13.0"
-  },
   "scripts": {
     "start": "node index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "mongoose": "^8.0.0"
   }
 }
