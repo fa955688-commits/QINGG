@@ -1,7 +1,7 @@
 const http = require('http');
 const { Client, GatewayIntentBits, PermissionsBitField, AuditLogEvent, REST, Routes, SlashCommandBuilder } = require('discord.js');
 
-// 1. Render Keep-Alive
+// 1. Keep-Alive for Render
 http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.write("Bot is running!");
@@ -18,123 +18,93 @@ const client = new Client({
   ]
 });
 
-// 2. Configuration
+// 2. Settings
 let PREFIX = '??'; 
 let WHITELIST = ['1302551987031900173']; 
 let ANTINUKE_ENABLED = true;
 const QUARANTINE_ROLE_ID = '1504790298377584650'; 
 
-// 3. Define Comprehensive Slash Commands
+// 3. Command Definition for Slash
 const commands = [
-  new SlashCommandBuilder().setName('ping').setDescription('Check bot latency'),
-  new SlashCommandBuilder().setName('wl-add').setDescription('Add a user to whitelist')
-    .addUserOption(option => option.setName('user').setDescription('User to whitelist').setRequired(true)),
-  new SlashCommandBuilder().setName('antinuke').setDescription('Toggle Anti-Nuke system')
-    .addStringOption(option => option.setName('status').setDescription('on or off').setRequired(true)),
-  new SlashCommandBuilder().setName('jail').setDescription('Jail a user')
-    .addUserOption(option => option.setName('target').setDescription('User to jail').setRequired(true)),
-  new SlashCommandBuilder().setName('ban').setDescription('Ban a user')
-    .addUserOption(option => option.setName('target').setDescription('User to ban').setRequired(true)),
-  new SlashCommandBuilder().setName('say').setDescription('Make the bot speak')
-    .addStringOption(option => option.setName('text').setDescription('The message').setRequired(true)),
-].map(command => command.toJSON());
+  new SlashCommandBuilder().setName('ping').setDescription('Check bot speed'),
+  new SlashCommandBuilder().setName('wl-add').setDescription('Whitelist a user').addUserOption(o => o.setName('user').setDescription('The user').setRequired(true)),
+  new SlashCommandBuilder().setName('antinuke').setDescription('Toggle Anti-Nuke').addStringOption(o => o.setName('status').setDescription('on/off').setRequired(true)),
+  new SlashCommandBuilder().setName('jail').setDescription('Jail someone').addUserOption(o => o.setName('target').setDescription('The target').setRequired(true)),
+  new SlashCommandBuilder().setName('ban').setDescription('Ban someone').addUserOption(o => o.setName('target').setDescription('The target').setRequired(true)),
+  new SlashCommandBuilder().setName('say').setDescription('Bot speaks').addStringOption(o => o.setName('text').setDescription('The message').setRequired(true)),
+].map(c => c.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
-// 4. Registration
+// 4. Register Slash Commands Instantly
 client.once('ready', async () => {
   try {
+    console.log(`Bot Online: ${client.user.tag}`);
     await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-    console.log(`Bot Ready. Prefix: ${PREFIX} | Slash Commands Registered.`);
-  } catch (error) { console.error(error); }
-});
-
-// 5. Anti-Nuke Logic
-client.on('channelDelete', async (channel) => {
-  if (!ANTINUKE_ENABLED) return;
-  try {
-    const auditLogs = await channel.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.ChannelDelete });
-    const log = auditLogs.entries.first();
-    if (log && !WHITELIST.includes(log.executor.id)) {
-      const member = await channel.guild.members.fetch(log.executor.id);
-      await member.roles.set([QUARANTINE_ROLE_ID]).catch(() => member.ban({ reason: 'Anti-Nuke Protection' }));
-    }
+    console.log('Slash Commands registered globally!');
   } catch (err) { console.error(err); }
 });
 
-// 6. ALL Interaction Handler (Slash /)
+// 5. Shared Logics (Function for Jail/Ban)
+async function performAction(action, target, messageOrInteraction) {
+  if (action === 'jail') {
+    await target.roles.set([QUARANTINE_ROLE_ID]);
+    return "User Jailed!";
+  }
+  if (action === 'ban') {
+    await target.ban();
+    return "User Banned!";
+  }
+}
+
+// 6. Slash Command Logic (/)
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
-  const isWhitelisted = WHITELIST.includes(interaction.user.id);
+  const isWL = WHITELIST.includes(interaction.user.id);
+  const { commandName } = interaction;
 
-  if (interaction.commandName === 'ping') await interaction.reply(`Latency: ${client.ws.ping}ms`);
+  if (commandName === 'ping') return interaction.reply(`Latency: ${client.ws.ping}ms`);
+  if (!isWL) return interaction.reply({ content: "No Permission!", ephemeral: true });
 
-  if (!isWhitelisted) return interaction.reply({ content: "Access Denied.", ephemeral: true });
-
-  if (interaction.commandName === 'wl-add') {
+  if (commandName === 'wl-add') {
     const user = interaction.options.getUser('user');
-    if (!WHITELIST.includes(user.id)) WHITELIST.push(user.id);
-    await interaction.reply(`Added ${user.tag} to Whitelist.`);
-  }
-
-  if (interaction.commandName === 'antinuke') {
-    const status = interaction.options.getString('status').toLowerCase();
-    ANTINUKE_ENABLED = status === 'on';
-    await interaction.reply(`Anti-Nuke is now ${ANTINUKE_ENABLED ? 'ENABLED' : 'DISABLED'}.`);
-  }
-
-  if (interaction.commandName === 'jail') {
+    WHITELIST.push(user.id);
+    await interaction.reply(`${user.tag} whitelisted!`);
+  } else if (commandName === 'antinuke') {
+    ANTINUKE_ENABLED = interaction.options.getString('status') === 'on';
+    await interaction.reply(`Anti-Nuke: ${ANTINUKE_ENABLED}`);
+  } else if (commandName === 'jail' || commandName === 'ban') {
     const target = interaction.options.getMember('target');
-    await target.roles.set([QUARANTINE_ROLE_ID]);
-    await interaction.reply(`Jailed ${target.user.tag}`);
-  }
-
-  if (interaction.commandName === 'ban') {
-    const target = interaction.options.getMember('target');
-    await target.ban();
-    await interaction.reply(`Banned ${target.user.tag}`);
-  }
-
-  if (interaction.commandName === 'say') {
-    const text = interaction.options.getString('text');
-    await interaction.channel.send(text);
-    await interaction.reply({ content: "Sent.", ephemeral: true });
+    const res = await performAction(commandName, target, interaction);
+    await interaction.reply(res);
+  } else if (commandName === 'say') {
+    await interaction.channel.send(interaction.options.getString('text'));
+    await interaction.reply({ content: "Done", ephemeral: true });
   }
 });
 
-// 7. ALL Message Handler (Prefix ??)
-client.on('messageCreate', async (message) => {
+// 7. Prefix Command Logic (??)
+client.on('messageCreate', async message => {
   if (!message.content.startsWith(PREFIX) || message.author.bot) return;
   const args = message.content.slice(PREFIX.length).trim().split(/ +/);
-  const command = args.shift().toLowerCase();
-  const isWhitelisted = WHITELIST.includes(message.author.id);
+  const cmd = args.shift().toLowerCase();
+  const isWL = WHITELIST.includes(message.author.id);
 
-  if (command === 'ping') return message.reply(`Latency: ${client.ws.ping}ms`);
+  if (cmd === 'ping') return message.reply(`Speed: ${client.ws.ping}ms`);
+  if (!isWL) return;
 
-  if (!isWhitelisted) return; // Silent ignore for non-whitelisted users
-
-  if (command === 'wl') {
-    const user = message.mentions.users.first();
-    if (user && !WHITELIST.includes(user.id)) WHITELIST.push(user.id);
-    return message.reply(`Whitelisted ${user?.tag || 'User'}`);
-  }
-
-  if (command === 'antinuke') {
-    ANTINUKE_ENABLED = args[0] === 'on';
-    return message.reply(`Anti-Nuke: ${ANTINUKE_ENABLED}`);
-  }
-
-  if (command === 'jail') {
-    const member = message.mentions.members.first();
-    if (member) {
-      await member.roles.set([QUARANTINE_ROLE_ID]);
-      return message.reply(`Jailed ${member.user.tag}`);
+  if (cmd === 'jail' || cmd === 'ban') {
+    const target = message.mentions.members.first();
+    if (target) {
+      const res = await performAction(cmd, target);
+      message.reply(res);
     }
-  }
-
-  if (command === 'say') {
+  } else if (cmd === 'say') {
     message.delete();
-    return message.channel.send(args.join(' '));
+    message.channel.send(args.join(' '));
+  } else if (cmd === 'antinuke') {
+    ANTINUKE_ENABLED = args[0] === 'on';
+    message.reply(`Anti-Nuke: ${ANTINUKE_ENABLED}`);
   }
 });
 
