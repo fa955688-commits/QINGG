@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuilder, AuditLogEvent, ActivityType } = require('discord.js');
+const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuilder, AuditLogEvent } = require('discord.js');
 const mongoose = require('mongoose');
 const http = require('http');
 
@@ -12,19 +12,19 @@ const Settings = mongoose.model('Settings', new mongoose.Schema({
     guildId: String,
     whitelist: { type: [String], default: ['1302551987031900173'] },
     logChannel: String,
+    quarantineRoleId: String, // 
     antinuke: { type: Boolean, default: true }
 }));
 
 const client = new Client({ intents: 3276799 }); 
 const PREFIX = '??'; 
-const GUILD_ID = '1431408224837435465'; 
-const QUARANTINE_ROLE_ID = '1504790298377584650';
 
-// 3. 50 SLASH COMMANDS DEFINITION (FIXED DESCRIPTION ERROR)
+// 3. 50 SLASH COMMANDS DEFINITION
 const slashCommands = [
     // Security & Anti-Nuke (12)
     new SlashCommandBuilder().setName('antinuke').setDescription('Toggle Anti-Nuke Protection').addStringOption(o => o.setName('status').setDescription('Choose status').setRequired(true).addChoices({name:'Enable',value:'on'},{name:'Disable',value:'off'})),
     new SlashCommandBuilder().setName('setlogs').setDescription('Set security log channel').addChannelOption(o => o.setName('channel').setDescription('Select channel').setRequired(true)),
+    new SlashCommandBuilder().setName('setquarantine').setDescription('Set quarantine isolation role for this server').addRoleOption(o => o.setName('role').setDescription('Select role').setRequired(true)),
     new SlashCommandBuilder().setName('wl-add').setDescription('Add user to whitelist').addUserOption(o => o.setName('user').setDescription('Select user').setRequired(true)),
     new SlashCommandBuilder().setName('wl-remove').setDescription('Remove user from whitelist').addUserOption(o => o.setName('user').setDescription('Select user').setRequired(true)),
     new SlashCommandBuilder().setName('wl-list').setDescription('Show all whitelisted users'),
@@ -81,27 +81,28 @@ const slashCommands = [
     new SlashCommandBuilder().setName('channelinfo').setDescription('Show current channel parameters'),
 ].map(c => c.toJSON());
 
-// 4. REGISTRATION ON BOT READY
+// 4. MULTI-SERVER GLOBAL REGISTRATION ON BOT READY
 client.once('ready', async () => {
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     try {
-        await rest.put(Routes.applicationCommands(client.user.id), { body: [] }); 
-        await rest.put(Routes.applicationGuildCommands(client.user.id, GUILD_ID), { body: slashCommands });
-        console.log(`🚀 QINGG ONLINE! Dual Modes Enabled (Prefix: ${PREFIX} & Slash)`);
+        // গ্
+        await rest.put(Routes.applicationCommands(client.user.id), { body: slashCommands });
+        console.log(`🚀 QINGG ONLINE! Multi-Server System Ready (Prefix: ${PREFIX} & Slash)`);
     } catch (e) { console.error(e); }
 });
 
-// CORE PROTECTION ENGINE (Anti-Nuke Trigger)
+// CORE PROTECTION ENGINE (Anti-Nuke Trigger - Multi-Server Dynamic Fix)
 client.on('channelDelete', async (channel) => {
+    if (!channel.guild) return;
     const s = await Settings.findOne({ guildId: channel.guild.id });
-    if (!s || !s.antinuke) return;
+    if (!s || !s.antinuke || !s.quarantineRoleId) return;
     const logs = await channel.guild.fetchAuditLogs({ limit: 1, type: AuditLogEvent.ChannelDelete }).catch(() => null);
     const entry = logs?.entries.first();
     
     if (entry && !s.whitelist.includes(entry.executor.id)) {
         const member = await channel.guild.members.fetch(entry.executor.id).catch(() => null);
         if (member) {
-            await member.roles.set([QUARANTINE_ROLE_ID]).catch(() => member.ban({ reason: "QINGG Anti-Nuke Engine" }));
+            await member.roles.set([s.quarantineRoleId]).catch(() => member.ban({ reason: "QINGG Anti-Nuke Engine" }));
             if (s.logChannel) {
                 const c = channel.guild.channels.cache.get(s.logChannel);
                 c?.send({ embeds: [new EmbedBuilder().setTitle("🚨 SECURITY ALERT").setDescription(`User **${entry.executor.tag}** was quarantined for deleting #${channel.name}`).setColor("Red")] });
@@ -113,18 +114,19 @@ client.on('channelDelete', async (channel) => {
 // 5. HELPER FUNCTION TO RUN CORE COMMAND LOGIC FOR BOTH SLASH & PREFIX
 async function runCommand(cmdName, iOrM, args, isSlash) {
     const guild = iOrM.guild;
+    if (!guild) return;
     const user = isSlash ? iOrM.user : iOrM.author;
     const channel = iOrM.channel;
     const s = await Settings.findOne({ guildId: guild.id }) || await Settings.create({ guildId: guild.id });
     const isWL = s.whitelist.includes(user.id) || user.id === guild.ownerId;
 
     const reply = async (content, ephemeral = false) => {
-        if (isSlash) return iOrM.reply({ content, ephemeral });
+        if (isSlash) return iOrM.deferred ? iOrM.editReply({ content, ephemeral }) : iOrM.reply({ content, ephemeral });
         return iOrM.reply(content);
     };
 
     const replyEmbed = async (embed) => {
-        if (isSlash) return iOrM.reply({ embeds: [embed] });
+        if (isSlash) return iOrM.deferred ? iOrM.editReply({ embeds: [embed] }) : iOrM.reply({ embeds: [embed] });
         return iOrM.reply({ embeds: [embed] });
     };
 
@@ -132,7 +134,7 @@ async function runCommand(cmdName, iOrM, args, isSlash) {
     const protectedCmds = [
         'ban', 'kick', 'unban', 'timeout', 'clear', 'nuke', 'lock', 'unlock', 
         'hide', 'unhide', 'slowmode', 'warn', 'clear-warns', 'antinuke', 
-        'setlogs', 'wl-add', 'wl-remove', 'lockdown', 'unlockdown', 'quarantine', 
+        'setlogs', 'setquarantine', 'wl-add', 'wl-remove', 'lockdown', 'unlockdown', 'quarantine', 
         'unquarantine', 'backup', 'nick', 'role-add', 'role-remove', 'role-create', 'role-delete'
     ];
 
@@ -140,7 +142,7 @@ async function runCommand(cmdName, iOrM, args, isSlash) {
         return reply("❌ Access Denied: This command is restricted to Whitelisted Administrators!");
     }
 
-    // ACTUAL ACTION EXECUTION FOR 50+ COMMANDS
+    // ACTUAL ACTION EXECUTION FOR ALL COMMANDS
     switch (cmdName) {
         case 'ping':
             return reply(`🏓 **Pong!** Latency: \`${client.ws.ping}ms\``);
@@ -253,10 +255,19 @@ async function runCommand(cmdName, iOrM, args, isSlash) {
         case 'setlogs': {
             let chanId;
             if (isSlash) chanId = iOrM.options.getChannel('channel').id;
-            else chanId = m.mentions.channels.first()?.id;
+            else chanId = iOrM.mentions.channels.first()?.id; // অরিজিনাল ভ্যারিয়েবল ফিক্স করা হয়েছে
             if (!chanId) return reply("❌ Specify a valid channel.");
             s.logChannel = chanId; await s.save();
             return reply(`✅ Security Log Channel routed to <#${chanId}>`);
+        }
+
+        case 'setquarantine': {
+            let roleId;
+            if (isSlash) roleId = iOrM.options.getRole('role').id;
+            else roleId = iOrM.mentions.roles.first()?.id;
+            if (!roleId) return reply("❌ Specify a valid role.");
+            s.quarantineRoleId = roleId; await s.save();
+            return reply(`✅ Quarantine containment role locked to <@&${roleId}>`);
         }
 
         case 'wl-add': {
@@ -278,8 +289,8 @@ async function runCommand(cmdName, iOrM, args, isSlash) {
             let target;
             if (isSlash) target = iOrM.options.getMember('user');
             else target = iOrM.mentions.members.first();
-            if (!target) return reply("❌ Mention a valid member.");
-            await target.roles.set([QUARANTINE_ROLE_ID]).catch(() => null);
+            if (!target || !s.quarantineRoleId) return reply("❌ Mention a valid member or ensure quarantine role is set.");
+            await target.roles.set([s.quarantineRoleId]).catch(() => null);
             return reply(`🔒 ${target.user.username} has been isolated to Quarantine.`);
         }
 
@@ -290,6 +301,10 @@ async function runCommand(cmdName, iOrM, args, isSlash) {
             if (!target) return reply("❌ Mention a valid member.");
             await target.roles.set([]).catch(() => null);
             return reply(`🔓 ${target.user.username} has been released from Quarantine.`);
+        }
+
+        case 'config': {
+            return reply(`⚙️ **Server Config:**\n🛡️ **Anti-Nuke:** ${s.antinuke ? '✅ ON' : '❌ OFF'}\n🔒 **Quarantine Role:** ${s.quarantineRoleId ? `<@&${s.quarantineRoleId}>` : '`Not Set`'}\n📜 **Log Channel:** ${s.logChannel ? `<#${s.logChannel}>` : '`Not Set`'}`);
         }
 
         case 'membercount':
@@ -312,18 +327,17 @@ async function runCommand(cmdName, iOrM, args, isSlash) {
 
         case 'help': {
             const emb = new EmbedBuilder().setTitle("📜 QINGG SYSTEM HUB (50 COMMANDS)").setColor("Gold")
-                .setDescription(`Works with both Slash (\`/\`) and Prefix (\`${PREFIX}\`) flags natively.`)
+                .setDescription(`Works with both Slash (\`/\`) and Prefix (\`${PREFIX}\`) flags natively across all servers.`)
                 .addFields(
-                    { name: '🛡️ Cyber Security', value: '`antinuke`, `setlogs`, `wl-add`, `wl-remove`, `wl-list`, `lockdown`, `unlockdown`, `quarantine`, `unquarantine`, `config`, `backup`, `security-status`', inline: false },
-                    { name: '🛠️ Admin Moderation', value: '`ban`, `kick`, `unban`, `timeout`, `clear`, `nuke`, `lock`, `unlock`, `hide`, `unhide`, `slowmode`, `warn`, `warnings`, `clear-warns`', inline: false },
-                    { name: '🎭 Roles & Config', value: '`role-add`, `role-remove`, `role-create`, `role-delete`, `role-all`, `role-humans`, `role-bots`, `role-info`, `role-rename`, `role-list`, `nick`', inline: false },
-                    { name: '📊 Analytics & Utility', value: '`serverinfo`, `userinfo`, `avatar`, `ping`, `uptime`, `membercount`, `invite`, `botinfo`, `boosters`, `emojis`, `stats`, `channelinfo`', inline: false }
+                    { name: '🛡️ Cyber Security', value: '`antinuke`, `setlogs`, `setquarantine`, `wl-add`, `wl-remove`, `wl-list`, `quarantine`, `unquarantine`, `config`', inline: false },
+                    { name: '🛠️ Admin Moderation', value: '`ban`, `kick`, `unban`, `timeout`, `clear`, `nuke`, `lock`, `unlock`, `hide`, `unhide`, `slowmode`', inline: false },
+                    { name: '📊 Analytics & Utility', value: '`serverinfo`, `avatar`, `ping`, `uptime`, `membercount`, `help`', inline: false }
                 );
             return replyEmbed(emb);
         }
 
         default:
-            return reply(`✅ **${cmdName}** protocol processed natively.`);
+            return reply(`✅ **${cmdName}** operational protocol cleared.`);
     }
 }
 
@@ -335,9 +349,10 @@ client.on('messageCreate', async m => {
     await runCommand(cmd, m, args, false);
 });
 
-// 7. SLASH INTERACTION EVENT SYSTEM
+// 7. SLASH INTERACTION EVENT SYSTEM (ANTI-TIMEOUT AUTO DEFER)
 client.on('interactionCreate', async i => {
     if (!i.isChatInputCommand()) return;
+    await i.deferReply().catch(() => null); // 
     await runCommand(i.commandName, i, [], true);
 });
 
